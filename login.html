@@ -1,0 +1,93 @@
+<!DOCTYPE html><html><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Login — MediSphere</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="assets/css/style.css">
+</head><body>
+<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;">
+  <div class="glass" style="width:100%;max-width:440px;padding:36px;">
+    <div style="text-align:center;margin-bottom:24px;">
+      <div style="width:54px;height:54px;border-radius:16px;background:linear-gradient(135deg,#2563EB,#1D4ED8);display:inline-flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:24px;">M</div>
+      <h1 style="font-size:24px;font-weight:700;margin-top:14px;">Welcome back</h1>
+      <p style="color:var(--muted);font-size:14px;">Login to your MediSphere account</p>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-bottom:18px;">
+      <button type="button" class="role-btn btn-ghost" data-role="patient">Patient</button>
+      <button type="button" class="role-btn btn-ghost" data-role="doctor">Doctor</button>
+      <button type="button" class="role-btn btn-ghost" data-role="admin">Admin</button>
+    </div>
+
+    <form id="loginForm" style="display:flex;flex-direction:column;gap:12px;">
+      <input id="identifier" class="input" placeholder="User ID / Email / Phone" required autocomplete="username">
+      <input id="password" class="input" type="password" placeholder="Password" required autocomplete="current-password">
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);">
+        <input id="remember" type="checkbox"> Remember me
+      </label>
+      <button class="btn-primary" type="submit" id="submitBtn">Login</button>
+    </form>
+
+    <div style="display:flex;justify-content:space-between;margin-top:16px;font-size:13px;">
+      <a href="forgot-password.html" style="color:var(--primary);">Forgot password?</a>
+      <a href="register.html" style="color:var(--primary);">Create account</a>
+    </div>
+  </div>
+</div>
+<script src="assets/js/app.js"></script>
+<script>
+let selectedRole = 'patient';
+
+document.querySelectorAll('.role-btn').forEach(b => {
+  b.addEventListener('click', () => {
+    selectedRole = b.dataset.role;
+    document.querySelectorAll('.role-btn').forEach(x => {
+      x.classList.remove('btn-primary');
+      x.classList.add('btn-ghost');
+    });
+    b.classList.add('btn-primary');
+    b.classList.remove('btn-ghost');
+  });
+});
+// activate default
+document.querySelector('.role-btn[data-role="patient"]').click();
+
+document.getElementById('loginForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const btn = document.getElementById('submitBtn');
+  const idVal = document.getElementById('identifier').value.trim();
+  const pwVal = document.getElementById('password').value;
+
+  if (!idVal || !pwVal) {
+    toast('Please fill all fields', 'error');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Signing in...';
+
+  const payload = {
+    identifier: idVal,
+    password: pwVal,
+    role: selectedRole
+  };
+  console.log('Login Payload:', { ...payload, password: '***' });
+
+  try {
+    const data = await api('/auth/login', { method: 'POST', body: payload });
+    if (!data.token || !data.user) {
+      throw new Error('Invalid response from server');
+    }
+    Auth.setSession(data.token, data.user);
+    toast('Welcome back!', 'success');
+    setTimeout(() => location.href = 'dashboard.html', 500);
+  } catch (err) {
+    console.error('Login error:', err);
+    toast(err.message || 'Login failed', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Login';
+  }
+});
+</script>
+</body></html>

@@ -1,0 +1,78 @@
+<!DOCTYPE html><html><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lab Reports — MediSphere</title>
+<script src="[cdn.tailwindcss.com](https://cdn.tailwindcss.com)"></script>
+<link rel="stylesheet" href="assets/css/style.css">
+</head><body>
+<div id="header"></div>
+<main style="max-width:900px;margin:0 auto;padding:18px;">
+  <h2 style="font-weight:700;font-size:22px;margin-bottom:14px;">Lab Reports</h2>
+  <input id="search" class="input" placeholder="Search reports…" style="margin-bottom:12px;">
+  <div id="list"></div>
+</main>
+<button class="fab" id="fab">+</button>
+<div id="nav"></div>
+
+<div id="modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,0.5);align-items:center;justify-content:center;z-index:60;padding:20px;">
+  <div class="glass" style="max-width:440px;width:100%;padding:26px;">
+    <h3 style="font-weight:700;font-size:18px;margin-bottom:14px;">Upload Report</h3>
+    <form id="repForm" style="display:flex;flex-direction:column;gap:10px;">
+      <input id="report_name" class="input" placeholder="Report Name" required>
+      <input id="report_type" class="input" placeholder="Report Type (Blood, X-Ray, MRI...)">
+      <input id="file_url" class="input" placeholder="File URL (uploaded link)">
+      <input id="report_date" type="date" class="input">
+      <textarea id="notes" class="input" placeholder="Notes"></textarea>
+      <div style="display:flex;gap:8px;">
+        <button type="button" class="btn-ghost" onclick="modal.style.display='none'" style="flex:1;">Cancel</button>
+        <button class="btn-primary" type="submit" style="flex:1;">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="assets/js/app.js"></script>
+<script>
+const u = Auth.require(); if (u) init();
+let allReports = [];
+
+async function init() {
+  document.getElementById('header').innerHTML = renderHeader('Reports');
+  document.getElementById('nav').innerHTML = renderBottomNav('reports.html');
+  await load();
+  search.addEventListener('input', render);
+}
+
+async function load() {
+  allReports = await api('/reports');
+  render();
+}
+
+function render() {
+  const q = (search.value || '').toLowerCase();
+  const filtered = allReports.filter(r => !q || (r.report_name||'').toLowerCase().includes(q) || (r.report_type||'').toLowerCase().includes(q));
+  if (!filtered.length) { list.innerHTML='<div class="card" style="padding:40px;text-align:center;color:var(--muted);">No reports</div>'; return; }
+  list.innerHTML = filtered.map(r => `
+    <div class="card" style="padding:14px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <div style="font-weight:600;">${r.report_name}</div>
+        <div style="font-size:12px;color:var(--muted);">${r.report_type||'Report'} • ${fmtDate(r.report_date)}</div>
+      </div>
+      ${r.file_url ? `<a href="${r.file_url}" target="_blank" class="btn-ghost" style="padding:6px 12px;font-size:12px;">View</a>` : ''}
+    </div>`).join('');
+}
+
+document.getElementById('fab').onclick = () => modal.style.display='flex';
+
+repForm.addEventListener('submit', async e => {
+  e.preventDefault();
+  try {
+    await api('/reports', { method:'POST', body: {
+      report_name: report_name.value, report_type: report_type.value,
+      file_url: file_url.value, report_date: report_date.value || null, notes: notes.value
+    }});
+    toast('Report saved', 'success');
+    modal.style.display='none'; repForm.reset(); load();
+  } catch(err) { toast(err.message, 'error'); }
+});
+</script>
+</body></html>

@@ -1,0 +1,126 @@
+<!DOCTYPE html><html><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Register — MediSphere</title>
+<script src="[cdn.tailwindcss.com](https://cdn.tailwindcss.com)"></script>
+<link rel="stylesheet" href="assets/css/style.css">
+</head><body>
+<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;">
+  <div class="glass" style="width:100%;max-width:520px;padding:32px;">
+    <div style="text-align:center;margin-bottom:18px;">
+      <h1 style="font-size:24px;font-weight:700;">Create your account</h1>
+      <p style="color:var(--muted);font-size:14px;">Join MediSphere in 30 seconds</p>
+    </div>
+    <form id="regForm" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <input id="full_name" class="input" placeholder="Full Name" required style="grid-column:span 2;">
+
+      <div style="grid-column:span 2;">
+        <input id="email" class="input" type="email" placeholder="Email" required>
+        <small id="emailStatus" style="font-size:11px;display:block;margin-top:4px;"></small>
+      </div>
+
+      <div style="grid-column:span 2;">
+        <input id="phone" class="input" placeholder="Phone Number" required>
+        <small id="phoneStatus" style="font-size:11px;display:block;margin-top:4px;"></small>
+      </div>
+
+      <input id="password" class="input" type="password" placeholder="Password (min 6 chars)" required minlength="6">
+      <input id="confirm" class="input" type="password" placeholder="Confirm Password" required minlength="6">
+
+      <select id="gender" class="input">
+        <option value="">Gender</option>
+        <option value="male">Male</option>
+        <option value="female">Female</option>
+        <option value="other">Other</option>
+      </select>
+      <input id="dob" class="input" type="date">
+
+      <select id="role" class="input" style="grid-column:span 2;">
+        <option value="patient">Patient</option>
+        <option value="doctor">Doctor</option>
+      </select>
+
+      <button class="btn-primary" type="submit" id="submitBtn" style="grid-column:span 2;">
+        Create Account
+      </button>
+    </form>
+    <p style="text-align:center;margin-top:14px;font-size:13px;">
+      Already have an account? <a href="login.html" style="color:var(--primary);">Login</a>
+    </p>
+  </div>
+</div>
+<script src="assets/js/app.js"></script>
+<script>
+async function checkAvailability(field, value, statusEl) {
+  if (!value) { statusEl.textContent = ''; return; }
+  try {
+    const r = await api('/auth/check-availability', {
+      method: 'POST',
+      body: { [field]: value }
+    });
+    if (r[field] === 'taken') {
+      statusEl.textContent = '✗ Already exists';
+      statusEl.style.color = 'var(--danger)';
+    } else if (r[field] === 'available') {
+      statusEl.textContent = '✓ Available';
+      statusEl.style.color = 'var(--success)';
+    }
+  } catch (err) {
+    console.warn('Availability check failed:', err);
+  }
+}
+
+document.getElementById('email').addEventListener('blur', e =>
+  checkAvailability('email', e.target.value.trim(), document.getElementById('emailStatus'))
+);
+document.getElementById('phone').addEventListener('blur', e =>
+  checkAvailability('phone', e.target.value.trim(), document.getElementById('phoneStatus'))
+);
+
+document.getElementById('regForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const btn = document.getElementById('submitBtn');
+
+  const full_name = document.getElementById('full_name').value.trim();
+  const email     = document.getElementById('email').value.trim();
+  const phone     = document.getElementById('phone').value.trim();
+  const password  = document.getElementById('password').value;
+  const confirm   = document.getElementById('confirm').value;
+  const gender    = document.getElementById('gender').value || null;
+  const dob       = document.getElementById('dob').value || null;
+  const role      = document.getElementById('role').value;
+
+  // Validate plain-text passwords against each other ONLY
+  if (password.trim() !== confirm.trim()) {
+    toast('Passwords do not match', 'error');
+    return;
+  }
+  if (password.length < 6) {
+    toast('Password must be at least 6 characters', 'error');
+    return;
+  }
+
+  const payload = { full_name, email, phone, password, gender, dob, role };
+  console.log('Register Payload:', { ...payload, password: '***' });
+
+  btn.disabled = true;
+  btn.textContent = 'Creating account...';
+
+  try {
+    const r = await api('/auth/register', { method: 'POST', body: payload });
+    if (!r.token || !r.user) {
+      throw new Error('Invalid response from server');
+    }
+    Auth.setSession(r.token, r.user);
+    toast(`Welcome! Your ID: ${r.user.user_code}`, 'success');
+    setTimeout(() => location.href = 'dashboard.html', 1000);
+  } catch (err) {
+    console.error('Registration error:', err);
+    toast(err.message || 'Registration failed', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Create Account';
+  }
+});
+</script>
+</body></html>

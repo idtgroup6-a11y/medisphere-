@@ -1,0 +1,76 @@
+<!DOCTYPE html><html><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Health Tracker — MediSphere</title>
+<script src="[cdn.tailwindcss.com](https://cdn.tailwindcss.com)"></script>
+<script src="[cdn.jsdelivr.net](https://cdn.jsdelivr.net/npm/chart.js)"></script>
+<link rel="stylesheet" href="assets/css/style.css">
+</head><body>
+<div id="header"></div>
+<main style="max-width:900px;margin:0 auto;padding:18px;">
+  <h2 style="font-weight:700;font-size:22px;margin-bottom:14px;">Health Tracker</h2>
+  <div class="card" style="padding:18px;margin-bottom:14px;">
+    <form id="form" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;">
+      <select id="metric_type" class="input">
+        <option value="weight">Weight (kg)</option>
+        <option value="bp">Blood Pressure</option>
+        <option value="sugar">Blood Sugar</option>
+        <option value="heart_rate">Heart Rate</option>
+        <option value="temperature">Temperature</option>
+        <option value="oxygen">Oxygen Saturation</option>
+      </select>
+      <input id="value" class="input" placeholder="Value (e.g. 120/80)" required>
+      <input id="unit" class="input" placeholder="Unit">
+      <button class="btn-primary" type="submit">Add</button>
+    </form>
+  </div>
+  <div class="card" style="padding:18px;">
+    <canvas id="chart" height="100"></canvas>
+  </div>
+  <div id="list" style="margin-top:14px;"></div>
+</main>
+<div id="nav"></div>
+<script src="assets/js/app.js"></script>
+<script>
+const u = Auth.require(['patient']); if (u) init();
+let chart;
+
+async function init() {
+  document.getElementById('header').innerHTML = renderHeader('Health Tracker');
+  document.getElementById('nav').innerHTML = renderBottomNav('profile.html');
+  await load();
+}
+
+async function load() {
+  const data = await api('/health-metrics');
+  list.innerHTML = data.slice(0, 10).map(m => `
+    <div class="card" style="padding:12px 16px;margin-bottom:8px;display:flex;justify-content:space-between;">
+      <div><div style="font-weight:600;">${m.metric_type}</div><div style="font-size:12px;color:var(--muted);">${fmtDateTime(m.recorded_at)}</div></div>
+      <div style="font-weight:700;color:var(--primary);">${m.value} ${m.unit||''}</div>
+    </div>`).join('');
+
+  // chart for selected metric
+  const type = metric_type.value;
+  const series = data.filter(d => d.metric_type === type).reverse();
+  const labels = series.map(d => fmtDate(d.recorded_at));
+  const values = series.map(d => parseFloat((d.value||'').toString().split('/')[0]) || 0);
+  if (chart) chart.destroy();
+  chart = new Chart(document.getElementById('chart'), {
+    type: 'line',
+    data: { labels, datasets: [{ label: type, data: values, borderColor:'#2563EB', backgroundColor:'rgba(37,99,235,0.1)', tension:0.3, fill:true }]},
+    options: { plugins: { legend: { display: false } } }
+  });
+}
+
+metric_type.addEventListener('change', load);
+
+form.addEventListener('submit', async e => {
+  e.preventDefault();
+  try {
+    await api('/health-metrics', { method:'POST', body: {
+      metric_type: metric_type.value, value: value.value, unit: unit.value
+    }});
+    toast('Saved', 'success'); value.value=''; load();
+  } catch(err) { toast(err.message, 'error'); }
+});
+</script>
+</body></html>

@@ -1,0 +1,63 @@
+<!DOCTYPE html><html><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Profile — MediSphere</title>
+<script src="[cdn.tailwindcss.com](https://cdn.tailwindcss.com)"></script>
+<link rel="stylesheet" href="assets/css/style.css">
+</head><body>
+<div id="header"></div>
+<main style="max-width:600px;margin:0 auto;padding:18px;">
+  <h2 style="font-weight:700;font-size:22px;margin-bottom:14px;">My Profile</h2>
+  <div class="card" style="padding:20px;">
+    <form id="form" style="display:flex;flex-direction:column;gap:10px;">
+      <input id="full_name" class="input" placeholder="Full Name">
+      <input id="phone" class="input" placeholder="Phone">
+      <input id="dob" type="date" class="input">
+      <select id="gender" class="input"><option value="">Gender</option><option>male</option><option>female</option><option>other</option></select>
+      <div id="role-fields"></div>
+      <button class="btn-primary" type="submit">Save Changes</button>
+    </form>
+    <div style="display:flex;gap:8px;margin-top:14px;">
+      <a class="btn-ghost" href="card.html" style="flex:1;text-align:center;">View Digital Card</a>
+      <a class="btn-ghost" href="health-tracker.html" style="flex:1;text-align:center;">Health Tracker</a>
+    </div>
+  </div>
+</main>
+<div id="nav"></div>
+<script src="assets/js/app.js"></script>
+<script>
+const u = Auth.require(); if (u) init();
+
+async function init() {
+  document.getElementById('header').innerHTML = renderHeader('Profile');
+  document.getElementById('nav').innerHTML = renderBottomNav('profile.html');
+  const me = await api('/auth/me');
+  full_name.value = me.user.full_name; phone.value = me.user.phone;
+  dob.value = me.user.dob || ''; gender.value = me.user.gender || '';
+  const rf = document.getElementById('role-fields');
+  if (u.role === 'patient') rf.innerHTML = `
+    <input id="blood_group" class="input" placeholder="Blood Group" value="${me.profile.blood_group||''}">
+    <input id="address" class="input" placeholder="Address" value="${me.profile.address||''}">
+    <input id="emergency_contact" class="input" placeholder="Emergency Contact" value="${me.profile.emergency_contact||''}">
+    <textarea id="allergies" class="input" placeholder="Allergies">${me.profile.allergies||''}</textarea>`;
+  else if (u.role === 'doctor') rf.innerHTML = `
+    <input id="specialization" class="input" placeholder="Specialization" value="${me.profile.specialization||''}">
+    <input id="hospital_name" class="input" placeholder="Hospital" value="${me.profile.hospital_name||''}">
+    <input id="experience_years" type="number" class="input" placeholder="Years of Experience" value="${me.profile.experience_years||0}">
+    <input id="consultation_fee" type="number" class="input" placeholder="Consultation Fee" value="${me.profile.consultation_fee||0}">`;
+}
+
+form.addEventListener('submit', async e => {
+  e.preventDefault();
+  const profile = {};
+  ['blood_group','address','emergency_contact','allergies','specialization','hospital_name','experience_years','consultation_fee'].forEach(k=>{
+    const el = document.getElementById(k); if (el) profile[k] = el.value;
+  });
+  try {
+    await api('/profile', { method:'PUT', body: {
+      full_name: full_name.value, phone: phone.value, dob: dob.value || null, gender: gender.value, profile
+    }});
+    toast('Profile updated', 'success');
+  } catch(err) { toast(err.message, 'error'); }
+});
+</script>
+</body></html>

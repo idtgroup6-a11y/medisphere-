@@ -1,0 +1,106 @@
+<!DOCTYPE html><html><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Medication Reminders — MediSphere</title>
+<script src="[cdn.tailwindcss.com](https://cdn.tailwindcss.com)"></script>
+<link rel="stylesheet" href="assets/css/style.css">
+</head><body>
+<div id="header"></div>
+<main style="max-width:900px;margin:0 auto;padding:18px;">
+  <h2 style="font-weight:700;font-size:22px;margin-bottom:14px;">Medication Reminders</h2>
+  <div id="adherence" class="glass" style="padding:18px;margin-bottom:14px;"></div>
+  <div id="list"></div>
+</main>
+<button class="fab" id="fab">+</button>
+<div id="nav"></div>
+
+<div id="modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,0.5);align-items:center;justify-content:center;z-index:60;padding:20px;">
+  <div class="glass" style="max-width:440px;width:100%;padding:26px;">
+    <h3 style="font-weight:700;font-size:18px;margin-bottom:14px;">Add Reminder</h3>
+    <form id="remForm" style="display:flex;flex-direction:column;gap:10px;">
+      <input id="medicine_name" class="input" placeholder="Medicine Name" required>
+      <input id="dosage" class="input" placeholder="Dosage (e.g. 500mg)">
+      <input id="frequency" class="input" placeholder="Frequency (e.g. 2x daily)">
+      <input id="alarm_time" type="time" class="input" required>
+      <input id="start_date" type="date" class="input">
+      <input id="end_date" type="date" class="input">
+      <textarea id="instructions" class="input" placeholder="Instructions"></textarea>
+      <div style="display:flex;gap:8px;">
+        <button type="button" class="btn-ghost" onclick="modal.style.display='none'" style="flex:1;">Cancel</button>
+        <button class="btn-primary" type="submit" style="flex:1;">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="assets/js/app.js"></script>
+<script>
+const u = Auth.require(['patient']); if (u) init();
+
+async function init() {
+  document.getElementById('header').innerHTML = renderHeader('Reminders');
+  document.getElementById('nav').innerHTML = renderBottomNav('reminders.html');
+  await Promise.all([loadAdherence(), loadList()]);
+}
+
+async function loadAdherence() {
+  const a = await api('/adherence');
+  document.getElementById('adherence').innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;text-align:center;">
+      <div><div style="font-size:11px;color:var(--muted);">Daily</div><div style="font-size:22px;font-weight:700;color:var(--success);">${a.daily}%</div></div>
+      <div><div style="font-size:11px;color:var(--muted);">Weekly</div><div style="font-size:22px;font-weight:700;color:var(--primary);">${a.weekly}%</div></div>
+      <div><div style="font-size:11px;color:var(--muted);">Monthly</div><div style="font-size:22px;font-weight:700;color:var(--warning);">${a.monthly}%</div></div>
+    </div>
+    <div style="margin-top:10px;font-size:12px;color:var(--muted);text-align:center;">
+      ✅ Taken: ${a.total_taken}  •  ❌ Missed: ${a.total_missed}
+    </div>`;
+}
+
+async function loadList() {
+  const list = document.getElementById('list');
+  const items = await api('/reminders');
+  if (!items.length) { list.innerHTML = '<div class="card" style="padding:40px;text-align:center;color:var(--muted);">No reminders yet — tap + to add</div>'; return; }
+  list.innerHTML = items.map(r => `
+    <div class="card" style="padding:16px;margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:start;">
+        <div>
+          <div style="font-weight:600;">${r.medicine_name}</div>
+          <div style="font-size:12px;color:var(--muted);">${r.dosage||''} • ${r.frequency||''} • ⏰ ${r.alarm_time||''}</div>
+          ${r.instructions?`<div style="font-size:12px;margin-top:4px;">${r.instructions}</div>`:''}
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px;">
+          <button class="btn-primary" style="padding:4px 10px;font-size:11px;" onclick="logIt('${r.id}','taken')">✓ Taken</button>
+          <button class="btn-ghost" style="padding:4px 10px;font-size:11px;" onclick="logIt('${r.id}','missed')">✗ Missed</button>
+          <button class="btn-ghost" style="padding:4px 10px;font-size:11px;color:var(--danger);" onclick="del('${r.id}')">Delete</button>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+document.getElementById('fab').onclick = () => modal.style.display='flex';
+
+remForm.addEventListener('submit', async e => {
+  e.preventDefault();
+  try {
+    await api('/reminders', { method:'POST', body: {
+      medicine_name: medicine_name.value, dosage: dosage.value, frequency: frequency.value,
+      alarm_time: alarm_time.value, start_date: start_date.value || null, end_date: end_date.value || null,
+      instructions: instructions.value
+    }});
+    toast('Reminder added', 'success');
+    modal.style.display='none'; remForm.reset();
+    loadList();
+  } catch(err) { toast(err.message, 'error'); }
+});
+
+async function logIt(id, status) {
+  await api(`/reminders/${id}/log`, { method:'POST', body:{ status }});
+  toast(status==='taken'?'Marked taken ✓':'Marked missed', status==='taken'?'success':'info');
+  loadAdherence();
+}
+async function del(id) {
+  if (!confirm('Delete this reminder?')) return;
+  await api('/reminders/'+id, { method:'DELETE' });
+  toast('Deleted', 'info'); loadList();
+}
+</script>
+</body></html>

@@ -1,0 +1,110 @@
+<!DOCTYPE html><html><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prescriptions — MediSphere</title>
+<script src="[cdn.tailwindcss.com](https://cdn.tailwindcss.com)"></script>
+<link rel="stylesheet" href="assets/css/style.css">
+</head><body>
+<div id="header"></div>
+<main style="max-width:900px;margin:0 auto;padding:18px;">
+  <h2 style="font-weight:700;font-size:22px;margin-bottom:14px;">Prescriptions</h2>
+  <div id="list"></div>
+</main>
+<button class="fab" id="fab">+</button>
+<div id="nav"></div>
+
+<div id="modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,0.5);align-items:center;justify-content:center;z-index:60;padding:20px;">
+  <div class="glass" style="max-width:520px;width:100%;padding:26px;max-height:90vh;overflow:auto;">
+    <h3 style="font-weight:700;font-size:18px;margin-bottom:14px;">Create Prescription</h3>
+    <form id="rxForm" style="display:flex;flex-direction:column;gap:10px;">
+      <select id="patient_id" class="input" required></select>
+      <div id="meds"></div>
+      <button type="button" class="btn-ghost" onclick="addMed()">+ Add Medicine</button>
+      <textarea id="instructions" class="input" placeholder="Instructions"></textarea>
+      <div style="display:flex;gap:8px;">
+        <button type="button" class="btn-ghost" onclick="modal.style.display='none'" style="flex:1;">Cancel</button>
+        <button class="btn-primary" type="submit" style="flex:1;">Create</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="assets/js/app.js"></script>
+<script>
+const u = Auth.require(); if (u) init();
+
+async function init() {
+  document.getElementById('header').innerHTML = renderHeader('Prescriptions');
+  document.getElementById('nav').innerHTML = renderBottomNav('prescriptions.html');
+  if (u.role !== 'doctor') document.getElementById('fab').style.display = 'none';
+  await loadList();
+  if (u.role === 'doctor') await loadPatients();
+  addMed();
+}
+
+async function loadList() {
+  const list = document.getElementById('list');
+  list.innerHTML = '<div class="skeleton" style="height:160px;"></div>';
+  const data = await api('/prescriptions');
+  if (!data.length) { list.innerHTML='<div class="card" style="padding:40px;text-align:center;color:var(--muted);">No prescriptions</div>'; return; }
+  list.innerHTML = data.map(p => `
+    <div class="card" style="padding:16px;margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:start;">
+        <div style="flex:1;">
+          <div style="font-weight:600;">${u.role==='patient' ? 'Dr. '+p.doctor_name : p.patient_name}</div>
+          <div style="font-size:12px;color:var(--muted);">${fmtDateTime(p.issued_at)}</div>
+          <ul style="margin-top:8px;font-size:13px;padding-left:18px;">
+            ${(p.medicines||[]).map(m => `<li>${m.name} — ${m.dose||''} ${m.frequency||''} ${m.duration||''}</li>`).join('')}
+          </ul>
+          ${p.instructions ? `<div style="font-size:12px;color:var(--muted);margin-top:6px;">${p.instructions}</div>` : ''}
+        </div>
+        <button class="btn-ghost" style="padding:6px 12px;font-size:12px;" onclick="downloadPdf('${p.id}')">PDF</button>
+      </div>
+    </div>`).join('');
+}
+
+async function loadPatients() {
+  const pts = await api('/patients');
+  patient_id.innerHTML = '<option value="">Select Patient</option>' +
+    pts.map(p => `<option value="${p.id}">${p.full_name} (${p.user_code})</option>`).join('');
+}
+
+function addMed() {
+  const div = document.createElement('div');
+  div.style.cssText = 'display:grid;grid-template-columns:2fr 1fr 1fr 1fr auto;gap:6px;';
+  div.innerHTML = `
+    <input class="input m-name" placeholder="Medicine">
+    <input class="input m-dose" placeholder="Dose">
+    <input class="input m-freq" placeholder="Frequency">
+    <input class="input m-dur" placeholder="Duration">
+    <button type="button" class="btn-ghost" onclick="this.parentNode.remove()">×</button>`;
+  document.getElementById('meds').appendChild(div);
+}
+
+document.getElementById('fab').onclick = () => modal.style.display='flex';
+
+rxForm.addEventListener('submit', async e => {
+  e.preventDefault();
+  const meds = [...document.querySelectorAll('#meds > div')].map(d => ({
+    name: d.querySelector('.m-name').value,
+    dose: d.querySelector('.m-dose').value,
+    frequency: d.querySelector('.m-freq').value,
+    duration: d.querySelector('.m-dur').value,
+  })).filter(m => m.name);
+  try {
+    await api('/prescriptions', { method:'POST', body: {
+      patient_id: patient_id.value, medicines: meds, instructions: instructions.value
+    }});
+    toast('Prescription created', 'success');
+    modal.style.display='none'; rxForm.reset(); document.getElementById('meds').innerHTML=''; addMed();
+    loadList();
+  } catch(err) { toast(err.message, 'error'); }
+});
+
+async function downloadPdf(id) {
+  const res = await fetch(`/api/prescriptions/${id}/pdf`, { headers:{ Authorization:'Bearer '+Auth.token() }});
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = `prescription-${id}.pdf`; a.click();
+}
+</script>
+</body></html>

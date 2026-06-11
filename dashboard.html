@@ -1,0 +1,119 @@
+<!DOCTYPE html><html><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard — MediSphere</title>
+<script src="[cdn.tailwindcss.com](https://cdn.tailwindcss.com)"></script>
+<script src="[cdn.jsdelivr.net](https://cdn.jsdelivr.net/npm/chart.js)"></script>
+<link rel="stylesheet" href="assets/css/style.css">
+</head><body>
+<div id="header"></div>
+<main style="max-width:1100px;margin:0 auto;padding:18px;">
+  <div class="glass" style="padding:24px;margin-bottom:18px;">
+    <div style="font-size:13px;color:var(--muted);">Welcome back</div>
+    <div id="welcome" style="font-size:24px;font-weight:700;" class="gradient-text">Loading…</div>
+    <div id="role-line" style="font-size:13px;color:var(--muted);margin-top:4px;"></div>
+  </div>
+  <div id="cards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;"></div>
+  <div id="extras" style="margin-top:18px;"></div>
+</main>
+<div id="nav"></div>
+<script src="assets/js/app.js"></script>
+<script>
+const u = Auth.require(); if (u) init();
+
+function statCard(label, value, icon, color='blue') {
+  return `<div class="card" style="padding:18px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <div style="font-size:12px;color:var(--muted);">${label}</div>
+        <div style="font-size:26px;font-weight:700;margin-top:4px;">${value}</div>
+      </div>
+      <div style="font-size:28px;">${icon}</div>
+    </div>
+  </div>`;
+}
+
+async function init() {
+  document.getElementById('header').innerHTML = renderHeader('Dashboard');
+  document.getElementById('nav').innerHTML = renderBottomNav('dashboard.html');
+  document.getElementById('welcome').textContent = u.full_name;
+  document.getElementById('role-line').textContent = `${u.role.toUpperCase()} • ${u.user_code}`;
+
+  if (u.role === 'patient')      await patientDash();
+  else if (u.role === 'doctor')  await doctorDash();
+  else                            await adminDash();
+}
+
+async function patientDash() {
+  const cards = document.getElementById('cards');
+  cards.innerHTML = Array(6).fill('<div class="skeleton" style="height:100px;"></div>').join('');
+  const [appts, presc, reports, reminders, adh, notif] = await Promise.all([
+    api('/appointments'), api('/prescriptions'), api('/reports'),
+    api('/reminders'), api('/adherence'), api('/notifications')
+  ]);
+  cards.innerHTML = [
+    statCard('Appointments', appts.length, '📅'),
+    statCard('Prescriptions', presc.length, '💊'),
+    statCard('Lab Reports', reports.length, '📋'),
+    statCard('Active Reminders', reminders.length, '⏰'),
+    statCard('Adherence (week)', adh.weekly + '%', '✅'),
+    statCard('Unread Notifs', notif.filter(n => !n.is_read).length, '🔔'),
+  ].join('');
+
+  document.getElementById('extras').innerHTML = `
+    <div class="card" style="padding:18px;margin-top:14px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <h3 style="font-weight:700;">Upcoming Appointments</h3>
+        <a href="appointments.html" style="color:var(--primary);font-size:13px;">View all →</a>
+      </div>
+      ${appts.slice(0,3).map(a => `
+        <div style="padding:12px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;">
+          <div>
+            <div style="font-weight:600;">${a.doctor_name || 'Doctor'}</div>
+            <div style="font-size:12px;color:var(--muted);">${fmtDate(a.appointment_date)} at ${a.appointment_time}</div>
+          </div>
+          <span class="badge badge-${a.status==='completed'?'green':a.status==='cancelled'?'red':'blue'}">${a.status}</span>
+        </div>`).join('') || '<p style="color:var(--muted);text-align:center;padding:20px;">No appointments yet</p>'}
+    </div>`;
+}
+
+async function doctorDash() {
+  const cards = document.getElementById('cards');
+  cards.innerHTML = Array(4).fill('<div class="skeleton" style="height:100px;"></div>').join('');
+  const [patients, appts, presc] = await Promise.all([
+    api('/patients'), api('/appointments'), api('/prescriptions')
+  ]);
+  cards.innerHTML = [
+    statCard('Patients', patients.length, '👥'),
+    statCard('Appointments', appts.length, '📅'),
+    statCard('Prescriptions Issued', presc.length, '💊'),
+    statCard('Today', appts.filter(a => a.appointment_date === new Date().toISOString().slice(0,10)).length, '⏱️'),
+  ].join('');
+}
+
+async function adminDash() {
+  const cards = document.getElementById('cards');
+  cards.innerHTML = Array(6).fill('<div class="skeleton" style="height:100px;"></div>').join('');
+  const stats = await api('/admin/stats');
+  cards.innerHTML = [
+    statCard('Total Patients', stats.total_patients, '👤'),
+    statCard('Total Doctors', stats.total_doctors, '🩺'),
+    statCard('Appointments', stats.total_appointments, '📅'),
+    statCard('Records', stats.total_records, '📋'),
+    statCard('Reports', stats.total_reports, '🧪'),
+    statCard('Prescriptions', stats.total_prescriptions, '💊'),
+  ].join('');
+
+  document.getElementById('extras').innerHTML = `
+    <div class="card" style="padding:18px;margin-top:14px;">
+      <h3 style="font-weight:700;margin-bottom:12px;">Platform Overview</h3>
+      <canvas id="chart" height="100"></canvas>
+    </div>`;
+  new Chart(document.getElementById('chart'), {
+    type: 'bar',
+    data: { labels: ['Patients','Doctors','Appts','Records','Reports','Rx'],
+      datasets: [{ data: [stats.total_patients, stats.total_doctors, stats.total_appointments, stats.total_records, stats.total_reports, stats.total_prescriptions], backgroundColor: '#2563EB', borderRadius: 8 }]},
+    options: { plugins: { legend: { display: false } } }
+  });
+}
+</script>
+</body></html>

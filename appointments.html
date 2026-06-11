@@ -1,0 +1,97 @@
+<!DOCTYPE html><html><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Appointments — MediSphere</title>
+<script src="[cdn.tailwindcss.com](https://cdn.tailwindcss.com)"></script>
+<link rel="stylesheet" href="assets/css/style.css">
+</head><body>
+<div id="header"></div>
+<main style="max-width:900px;margin:0 auto;padding:18px;">
+  <h2 style="font-weight:700;font-size:22px;margin-bottom:14px;">Appointments</h2>
+  <div id="list"></div>
+</main>
+<button class="fab" id="fab" title="Book appointment">+</button>
+<div id="nav"></div>
+
+<div id="modal" style="display:none;position:fixed;inset:0;background:rgba(15,23,42,0.5);align-items:center;justify-content:center;z-index:60;padding:20px;">
+  <div class="glass" style="max-width:440px;width:100%;padding:26px;">
+    <h3 style="font-weight:700;font-size:18px;margin-bottom:14px;">Book Appointment</h3>
+    <form id="apptForm" style="display:flex;flex-direction:column;gap:10px;">
+      <select id="doctor_id" class="input" required></select>
+      <input id="appointment_date" type="date" class="input" required>
+      <input id="appointment_time" type="time" class="input" required>
+      <textarea id="reason" class="input" placeholder="Reason for visit"></textarea>
+      <div style="display:flex;gap:8px;">
+        <button type="button" class="btn-ghost" onclick="modal.style.display='none'" style="flex:1;">Cancel</button>
+        <button class="btn-primary" type="submit" style="flex:1;">Book</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="assets/js/app.js"></script>
+<script>
+const u = Auth.require(); if (u) init();
+
+async function init() {
+  document.getElementById('header').innerHTML = renderHeader('Appointments');
+  document.getElementById('nav').innerHTML = renderBottomNav('appointments.html');
+  if (u.role !== 'patient') document.getElementById('fab').style.display = 'none';
+  await loadList();
+  if (u.role === 'patient') await loadDoctors();
+}
+
+async function loadList() {
+  const list = document.getElementById('list');
+  list.innerHTML = '<div class="skeleton" style="height:200px;"></div>';
+  const appts = await api('/appointments');
+  if (!appts.length) { list.innerHTML = '<div class="card" style="padding:40px;text-align:center;color:var(--muted);">No appointments yet</div>'; return; }
+  list.innerHTML = appts.map(a => `
+    <div class="card" style="padding:16px;margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:start;">
+        <div>
+          <div style="font-weight:600;font-size:15px;">${u.role==='patient' ? a.doctor_name : a.patient_name}</div>
+          <div style="color:var(--muted);font-size:13px;margin-top:2px;">${fmtDate(a.appointment_date)} • ${a.appointment_time}</div>
+          ${a.reason ? `<div style="font-size:13px;margin-top:6px;">${a.reason}</div>` : ''}
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;align-items:end;">
+          <span class="badge badge-${a.status==='completed'?'green':a.status==='cancelled'?'red':'blue'}">${a.status}</span>
+          ${a.status==='scheduled' ? `<button class="btn-ghost" style="padding:4px 10px;font-size:11px;" onclick="cancelAppt('${a.id}')">Cancel</button>` : ''}
+          ${u.role==='doctor' && a.status==='scheduled' ? `<button class="btn-primary" style="padding:4px 10px;font-size:11px;" onclick="completeAppt('${a.id}')">Complete</button>` : ''}
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+async function loadDoctors() {
+  const docs = await api('/doctors');
+  doctor_id.innerHTML = '<option value="">Select Doctor</option>' +
+    docs.map(d => `<option value="${d.id}">${d.full_name} — ${d.profile?.specialization || 'General'}</option>`).join('');
+}
+
+document.getElementById('fab').onclick = () => modal.style.display = 'flex';
+
+apptForm.addEventListener('submit', async e => {
+  e.preventDefault();
+  try {
+    await api('/appointments', { method:'POST', body: {
+      doctor_id: doctor_id.value, appointment_date: appointment_date.value,
+      appointment_time: appointment_time.value, reason: reason.value
+    }});
+    toast('Appointment booked!', 'success');
+    modal.style.display = 'none';
+    apptForm.reset();
+    await loadList();
+  } catch(err) { toast(err.message, 'error'); }
+});
+
+async function cancelAppt(id) {
+  if (!confirm('Cancel this appointment?')) return;
+  await api('/appointments/' + id, { method: 'DELETE' });
+  toast('Cancelled', 'info'); loadList();
+}
+async function completeAppt(id) {
+  await api('/appointments/' + id, { method:'PUT', body:{ status:'completed' }});
+  toast('Marked completed', 'success'); loadList();
+}
+</script>
+</body></html>

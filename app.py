@@ -1,12 +1,13 @@
 """
 MediSphere - Full Flask Backend (single file)
-Run: python app.py
+Run: python app.py  (local)  |  gunicorn app:app  (production)
 """
 import os
 import io
 import jwt
 import bcrypt
 import qrcode
+import logging
 import datetime as dt
 from functools import wraps
 from flask import Flask, request, jsonify, send_file, send_from_directory
@@ -26,11 +27,37 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
 JWT_SECRET   = os.getenv("JWT_SECRET", "medisphere-secret-college-project")
 JWT_ALG      = "HS256"
 JWT_EXP_HRS  = 24
-FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend")
+
+# Resolve frontend directory robustly — try multiple common layouts
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+_CANDIDATE_FRONTEND_DIRS = [
+    os.path.join(BASE_DIR, "..", "frontend"),   # backend/ + frontend/ sibling layout
+    os.path.join(BASE_DIR, "frontend"),         # frontend/ inside same folder
+    os.path.join(BASE_DIR, "..", "..", "frontend"),
+    os.path.join(BASE_DIR, "static"),           # fallback
+    BASE_DIR,                                   # last resort
+]
+FRONTEND_DIR = next(
+    (os.path.abspath(p) for p in _CANDIDATE_FRONTEND_DIRS
+     if os.path.isdir(p) and os.path.isfile(os.path.join(p, "index.html"))),
+    None,
+)
+
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger("medisphere")
+log.info(f"BASE_DIR: {BASE_DIR}")
+log.info(f"FRONTEND_DIR resolved to: {FRONTEND_DIR}")
+if not FRONTEND_DIR:
+    log.warning("No frontend/index.html found in any candidate path. "
+                "Root route will serve a JSON status page instead.")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL else None
 
-app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path="")
+app = Flask(
+    __name__,
+    static_folder=FRONTEND_DIR if FRONTEND_DIR else None,
+    static_url_path="",
+)
 CORS(app, supports_credentials=True)
 
 # ------------------------------------------------------------------
@@ -88,18 +115,55 @@ def log_audit(user_id, action, details=""):
         pass
 
 # ------------------------------------------------------------------
-# STATIC FRONTEND
+# STATIC FRONTEND / ROOT
 # ------------------------------------------------------------------
 @app.route("/")
 def root():
-    return send_from_directory(FRONTEND_DIR, "index.html")
+    if FRONTEND_DIR and os.path.isfile(os.path.join(FRONTEND_DIR, "index.html")):
+        return send_from_directory(FRONTEND_DIR, "index.html")
+    # Fallback so the URL never 404s even if frontend isn't deployed
+    return jsonify({
+        "service": "MediSphere API",
+        "status": "running",
+        "frontend_dir": FRONTEND_DIR,
+        "message": "Backend is live. Frontend index.html was not found on the server.",
+        "endpoints_sample": [
+            "POST /api/auth/login",
+            "POST /api/auth/register",
+            "GET  /api/auth/me",
+            "GET  /api/health",
+        ],
+    }), 200
+
+@app.route("/health")
+@app.route("/api/health")
+def health():
+    return jsonify({
+        "ok": True,
+        "frontend_loaded": FRONTEND_DIR is not None,
+        "frontend_dir": FRONTEND_DIR,
+        "supabase_configured": supabase is not None,
+        "time": dt.datetime.utcnow().isoformat(),
+    })
 
 @app.route("/<path:path>")
 def static_proxy(path):
-    full = os.path.join(FRONTEND_DIR, path)
-    if os.path.isfile(full):
-        return send_from_directory(FRONTEND_DIR, path)
-    return send_from_directory(FRONTEND_DIR, "index.html")
+    # Never intercept API routes
+    if path.startswith("api/"):
+        return jsonify({"error": "Not found"}), 404
+    if FRONTEND_DIR:
+        full = os.path.join(FRONTEND_DIR, path)
+        if os.path.isfile(full):
+            return send_from_directory(FRONTEND_DIR, path)
+        # SPA fallback
+        index_path = os.path.join(FRONTEND_DIR, "index.html")
+        if os.path.isfile(index_path):
+            return send_from_directory(FRONTEND_DIR, "index.html")
+    return jsonify({"error": "Not found", "path": path}), 404
+
+@app.errorhandler(404)
+def not_found(e):
+    return jsonify({"error": "Not found", "path": request.path}), 404
 
 # ------------------------------------------------------------------
 # AUTH
@@ -127,7 +191,6 @@ def register():
     if role not in ("patient", "doctor", "admin"):
         return jsonify({"error": "Invalid role"}), 400
 
-    # uniqueness
     exists = supabase.table("users").select("id").or_(
         f"email.eq.{d['email']},phone.eq.{d['phone']}"
     ).execute()
@@ -166,7 +229,7 @@ def register():
 @app.post("/api/auth/login")
 def login():
     d = request.json or {}
-    identifier = d.get("identifier")  # user_code / email / phone
+    identifier = d.get("identifier")
     password = d.get("password")
     role = d.get("role")
     if not identifier or not password:
@@ -316,7 +379,6 @@ def list_appointments():
     else:
         r = supabase.table("appointments").select("*").order("appointment_date", desc=True).execute()
     rows = r.data or []
-    # enrich with names
     for row in rows:
         for key in ("patient_id", "doctor_id"):
             u = supabase.table("users").select("user_code,full_name").eq("id", row[key]).execute().data
@@ -722,7 +784,7 @@ def audit_logs():
     return jsonify(r.data or [])
 
 # ------------------------------------------------------------------
-# DEV: re-seed passwords (so seed accounts work with current bcrypt)
+# DEV: re-seed passwords
 # ------------------------------------------------------------------
 @app.post("/api/dev/seed-passwords")
 def seed_passwords():
@@ -736,4 +798,5 @@ def seed_passwords():
 
 # ------------------------------------------------------------------
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=True)
